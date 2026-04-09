@@ -5,9 +5,9 @@ export const notificationApi = {
   getAll: () =>
     apiClient.get<Notification[]>('/notifications').then((res) => res.data),
 
+  getUnread: () =>
+    apiClient.get<Notification[]>('/notifications/unread').then((res) => res.data),
+
   markAsRead: (id: number) =>
     apiClient.patch(`/notifications/${id}/read`).then((res) => res.data),
-
-  markAllAsRead: () =>
-    apiClient.patch('/notifications/read-all').then((res) => res.data),
 };

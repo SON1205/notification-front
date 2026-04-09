@@ -4,78 +4,53 @@ import { tokenStorage } from '../services/auth/tokenStorage';
 import { authApi } from '../services/api/authApi';
 import { setOnUnauthorized } from '../services/api/client';
 import { disconnect as disconnectSSE } from '../services/sse/sseClient';
-import type { LoginRequest, User } from '../types/auth';
+import type { LoginRequest } from '../types/auth';
 
 interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
-  user: User | null;
+  username: string | null;
   login: (data: LoginRequest) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set) => {
-  const logout = async () => {
+  const forceLogout = () => {
     disconnectSSE();
-    try {
-      await authApi.logout();
-    } catch {
-      // 서버 불가 시에도 로컬 정리
-    }
-    await tokenStorage.clearTokens();
-    set({ isAuthenticated: false, user: null });
+    tokenStorage.clearTokens();
+    set({ isAuthenticated: false, username: null });
   };
 
   // 401 발생 시 자동 로그아웃
-  setOnUnauthorized(() => {
-    set({ isAuthenticated: false, user: null });
-    disconnectSSE();
-    tokenStorage.clearTokens();
-  });
+  setOnUnauthorized(forceLogout);
 
   return {
     isAuthenticated: false,
     isLoading: true,
-    user: null,
+    username: null,
 
     login: async (data) => {
       const response = await authApi.login(data);
       // 네이티브: 응답 body에서 토큰 저장
-      // 웹: 서버가 Set-Cookie로 자동 처리
-      if (Platform.OS !== 'web' && response.accessToken) {
-        await tokenStorage.setAccessToken(response.accessToken);
+      // 웹: 서버가 Set-Cookie로 자동 처리 (백엔드 구현 시)
+      if (response.token) {
+        await tokenStorage.setAccessToken(response.token);
       }
-      // 로그인 직후 사용자 정보 확인
-      try {
-        const user = await authApi.me();
-        set({ isAuthenticated: true, user });
-      } catch {
-        set({ isAuthenticated: true });
-      }
+      set({ isAuthenticated: true, username: data.username });
     },
 
-    logout,
+    logout: async () => {
+      disconnectSSE();
+      await tokenStorage.clearTokens();
+      set({ isAuthenticated: false, username: null });
+    },
 
     checkAuth: async () => {
-      try {
-        if (Platform.OS === 'web') {
-          const user = await authApi.me();
-          set({ isAuthenticated: true, user, isLoading: false });
-        } else {
-          const token = await tokenStorage.getAccessToken();
-          if (token) {
-            const user = await authApi.me();
-            set({ isAuthenticated: true, user, isLoading: false });
-          } else {
-            set({ isAuthenticated: false, isLoading: false });
-          }
-        }
-      } catch {
-        // 인증 실패 시 토큰 정리
-        await tokenStorage.clearTokens();
-        set({ isAuthenticated: false, user: null, isLoading: false });
-      }
+      // 현재 백엔드에 /auth/me API가 없으므로 토큰 존재 여부로 판단
+      // 백엔드에 me API 추가 시 서버 검증으로 전환
+      const token = await tokenStorage.getAccessToken();
+      set({ isAuthenticated: !!token, isLoading: false });
     },
   };
 });

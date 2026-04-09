@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { Platform } from 'react-native';
 import { config } from '../../constants/config';
 import { tokenStorage } from '../auth/tokenStorage';
 
@@ -9,22 +8,19 @@ export const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  // 웹: Cookie 자동 전송 (CSRF는 백엔드 SameSite=Lax로 방어)
-  withCredentials: Platform.OS === 'web',
+  // TODO: 백엔드 Cookie 인증 구현 후 웹에서 withCredentials: true 활성화
 });
 
-// 네이티브: Authorization 헤더로 JWT 전달
+// JWT 헤더 자동 주입 (웹/네이티브 공통, Cookie 전환 시 네이티브만)
 apiClient.interceptors.request.use(async (reqConfig) => {
-  if (Platform.OS !== 'web') {
-    const token = await tokenStorage.getAccessToken();
-    if (token) {
-      reqConfig.headers.Authorization = `Bearer ${token}`;
-    }
+  const token = await tokenStorage.getAccessToken();
+  if (token) {
+    reqConfig.headers.Authorization = `Bearer ${token}`;
   }
   return reqConfig;
 });
 
-// 401 시 인증 상태 초기화 (zustand import 순환 방지를 위해 이벤트 방식)
+// 401 시 인증 상태 초기화
 let onUnauthorized: (() => void) | null = null;
 
 export function setOnUnauthorized(callback: () => void): void {
@@ -35,9 +31,7 @@ apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     if (error.response?.status === 401) {
-      if (Platform.OS !== 'web') {
-        await tokenStorage.clearTokens();
-      }
+      await tokenStorage.clearTokens();
       onUnauthorized?.();
     }
     return Promise.reject(error);

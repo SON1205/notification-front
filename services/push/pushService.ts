@@ -10,6 +10,8 @@ export async function setupNotificationHandler(): Promise<void> {
       shouldShowAlert: true,
       shouldPlaySound: true,
       shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
     }),
   });
 }

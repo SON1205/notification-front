@@ -11,11 +11,17 @@ export default function NotificationsScreen() {
   const { notifications, setNotifications, addNotification, markAsRead } =
     useNotificationStore();
 
-  const { isLoading, refetch } = useQuery({
+  const { data, isLoading, refetch } = useQuery({
     queryKey: ['notifications'],
     queryFn: notificationApi.getAll,
-    onSuccess: (data: Notification[]) => setNotifications(data),
   });
+
+  // data 변경 시 스토어 동기화
+  useEffect(() => {
+    if (data) {
+      setNotifications(data);
+    }
+  }, [data]);
 
   // SSE 연결: foreground에서만 유지
   useEffect(() => {
@@ -39,7 +45,7 @@ export default function NotificationsScreen() {
   const handlePress = async (item: Notification) => {
     if (!item.isRead) {
       markAsRead(item.id);
-      await notificationApi.markAsRead(item.id);
+      await notificationApi.markAsRead(item.id).catch(() => {});
     }
   };
 
@@ -47,8 +53,12 @@ export default function NotificationsScreen() {
     <TouchableOpacity
       style={[styles.item, !item.isRead && styles.unread]}
       onPress={() => handlePress(item)}>
-      <Text style={styles.type}>{item.type}</Text>
-      <Text style={styles.content}>{item.content}</Text>
+      <View style={styles.header}>
+        <Text style={styles.type}>{item.type}</Text>
+        {!item.isRead && <View style={styles.dot} />}
+      </View>
+      <Text style={styles.title}>{item.title}</Text>
+      <Text style={styles.content} numberOfLines={2}>{item.content}</Text>
       <Text style={styles.time}>{new Date(item.createdAt).toLocaleString()}</Text>
     </TouchableOpacity>
   );
@@ -86,8 +96,11 @@ const styles = StyleSheet.create({
     borderBottomColor: '#eee',
   },
   unread: { backgroundColor: '#f0f7ff' },
-  type: { fontSize: 12, color: '#666', marginBottom: 4 },
-  content: { fontSize: 16, marginBottom: 4 },
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  type: { fontSize: 12, color: '#666' },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#007AFF', marginLeft: 6 },
+  title: { fontSize: 16, fontWeight: '600', marginBottom: 2 },
+  content: { fontSize: 14, color: '#333', marginBottom: 4 },
   time: { fontSize: 12, color: '#999' },
   empty: { fontSize: 16, color: '#999' },
 });

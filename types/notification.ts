@@ -1,9 +1,10 @@
 export interface Notification {
   id: number;
-  content: string;
   type: NotificationType;
+  title: string;
+  content: string;
   isRead: boolean;
   createdAt: string;
 }
 
-export type NotificationType = 'COMMENT' | 'FOLLOW' | 'LIKE' | 'SYSTEM';
+export type NotificationType = 'SYSTEM';

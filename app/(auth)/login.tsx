@@ -3,21 +3,21 @@ import { StyleSheet, Text, TextInput, TouchableOpacity, View, Alert } from 'reac
 import { useAuthStore } from '@/store/authStore';
 
 export default function LoginScreen() {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const login = useAuthStore((s) => s.login);
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('입력 오류', '이메일과 비밀번호를 입력해주세요');
+    if (!username || !password) {
+      Alert.alert('입력 오류', '아이디와 비밀번호를 입력해주세요');
       return;
     }
     setLoading(true);
     try {
-      await login({ email, password });
+      await login({ username, password });
     } catch {
-      Alert.alert('로그인 실패', '이메일 또는 비밀번호를 확인해주세요');
+      Alert.alert('로그인 실패', '아이디 또는 비밀번호를 확인해주세요');
     } finally {
       setLoading(false);
     }
@@ -30,11 +30,10 @@ export default function LoginScreen() {
 
       <TextInput
         style={styles.input}
-        placeholder="이메일"
-        value={email}
-        onChangeText={setEmail}
+        placeholder="아이디"
+        value={username}
+        onChangeText={setUsername}
         autoCapitalize="none"
-        keyboardType="email-address"
       />
       <TextInput
         style={styles.input}
