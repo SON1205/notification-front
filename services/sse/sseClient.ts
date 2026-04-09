@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { config } from '../../constants/config';
 import { tokenStorage } from '../auth/tokenStorage';
 import type { Notification } from '../../types/notification';
@@ -5,17 +6,52 @@ import type { Notification } from '../../types/notification';
 type SseCallback = (notification: Notification) => void;
 
 let abortController: AbortController | null = null;
+let eventSource: EventSource | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
- * SSE 인증: fetch streaming + Authorization 헤더 (웹/네이티브 공통)
+ * SSE 인증 전략 (하이브리드):
+ * - 현재: 웹/네이티브 모두 fetch streaming + Authorization 헤더
+ * - 목표: 웹은 EventSource + Cookie, 네이티브는 fetch + 헤더
  *
- * TODO: 백엔드 Cookie 인증 구현 후
- *       웹은 EventSource + withCredentials: true 방식으로 전환
+ * 백엔드에서 Set-Cookie 구현 완료 시:
+ * COOKIE_AUTH_ENABLED를 true로 변경하면 웹이 Cookie 방식으로 전환됨
  */
+const COOKIE_AUTH_ENABLED = false;
+
 export async function connectSSE(onNotification: SseCallback): Promise<void> {
   disconnect();
 
+  if (COOKIE_AUTH_ENABLED && Platform.OS === 'web') {
+    connectWebCookie(onNotification);
+  } else {
+    await connectWithHeader(onNotification);
+  }
+}
+
+/** 웹 Cookie 방식: EventSource + withCredentials (백엔드 Cookie 구현 후 활성화) */
+function connectWebCookie(onNotification: SseCallback): void {
+  const url = `${config.API_BASE_URL}/api/v1/notifications/stream`;
+
+  eventSource = new EventSource(url, { withCredentials: true });
+
+  eventSource.addEventListener('notification', (event: MessageEvent) => {
+    try {
+      const data: Notification = JSON.parse(event.data);
+      onNotification(data);
+    } catch {
+      // malformed JSON 무시
+    }
+  });
+
+  eventSource.onerror = () => {
+    disconnect();
+    scheduleReconnect(onNotification);
+  };
+}
+
+/** 헤더 방식: fetch streaming + Authorization (웹/네이티브 공통) */
+async function connectWithHeader(onNotification: SseCallback): Promise<void> {
   const token = await tokenStorage.getAccessToken();
   if (!token) return;
 
@@ -108,6 +144,10 @@ function processBuffer(buffer: string, onNotification: SseCallback): string {
 
 export function disconnect(): void {
   clearReconnectTimer();
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
+  }
   if (abortController) {
     abortController.abort();
     abortController = null;
