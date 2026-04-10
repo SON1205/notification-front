@@ -1,25 +1,35 @@
 # notification-front
 
 Spring Boot 알림 서비스([notificationService](https://github.com/SON1205/notificationService))의 크로스플랫폼 프론트엔드.
-Expo (React Native)로 iOS, Android, Web을 하나의 코드베이스로 지원한다.
+Expo (React Native)로 iOS, Web을 하나의 코드베이스로 지원한다.
 
 ## 기술 스택
 
 - **Expo SDK 54** / React Native 0.81 / TypeScript
 - **Expo Router** — 파일 기반 라우팅 (tabs + auth 그룹)
 - **Zustand** — 전역 상태 관리 (인증, 알림)
-- **React Query** — API 캐싱 및 서버 상태 관리
-- **Axios** — REST API 클라이언트 (JWT Interceptor)
-- **expo-secure-store** — 모바일 JWT 토큰 보안 저장
-- **expo-notifications** — 모바일 푸시 알림 (FCM/APNs)
+- **React Query v5** — API 캐싱 및 서버 상태 관리
+- **Axios** — REST API 클라이언트 (하이브리드 인증 Interceptor)
+- **react-native-sse** — 네이티브 SSE 클라이언트 (커스텀 헤더 지원)
+- **expo-secure-store** — 네이티브 JWT 토큰 보안 저장
+- **expo-notifications** — 모바일 푸시 알림 (Phase 4 예정)
+
+## 인증 아키텍처 (하이브리드)
+
+| 플랫폼 | 인증 방식 | 토큰 저장 |
+|---|---|---|
+| 웹 | HttpOnly Cookie (서버 Set-Cookie) | 서버 관리 (XSS 방어) |
+| iOS/Android | Authorization 헤더 | expo-secure-store (암호화) |
+
+로그인 시 백엔드가 Cookie + body token을 동시 제공하므로, 각 플랫폼이 자신에게 맞는 방식을 사용한다.
 
 ## 알림 아키텍처
 
 | 앱 상태 | 전송 채널 | 구현 |
 |---|---|---|
-| Foreground | SSE (Server-Sent Events) | `services/sse/sseClient.ts` |
-| Background / 종료 | FCM (Android), APNs (iOS) | `services/push/pushService.ts` |
-| 웹 | SSE (EventSource API) | `services/sse/sseClient.ts` |
+| Foreground (웹) | SSE (EventSource + Cookie) | `services/sse/sseClient.ts` |
+| Foreground (iOS) | SSE (react-native-sse + 헤더) | `services/sse/sseClient.ts` |
+| Background / 종료 | FCM / APNs (Phase 4 예정) | `services/push/pushService.ts` |
 
 ## 프로젝트 구조
 
@@ -29,9 +39,9 @@ app/                    # 화면 (Expo Router)
   (tabs)/               # 알림 목록, 설정
 services/               # 외부 연동
   api/                  # Axios 인스턴스, REST API
-  auth/                 # JWT 토큰 저장 (SecureStore / localStorage)
-  sse/                  # SSE 실시간 연결
-  push/                 # 푸시 알림 등록
+  auth/                 # 토큰 저장 (웹: Cookie / 네이티브: SecureStore)
+  sse/                  # SSE 실시간 연결 (플랫폼별 분기)
+  push/                 # 푸시 알림 등록 (Phase 4)
 store/                  # Zustand 스토어 (auth, notification)
 types/                  # TypeScript 타입 정의
 constants/              # 환경 설정, 색상
@@ -43,7 +53,6 @@ constants/              # 환경 설정, 색상
 npm install              # 의존성 설치
 npm run web              # 웹 개발 서버 (localhost:8081)
 npm run ios              # iOS 시뮬레이터
-npm run android          # Android 에뮬레이터
 ```
 
 ## 백엔드 연동
@@ -57,13 +66,17 @@ const ENV = {
 };
 ```
 
-백엔드 API 엔드포인트:
-- `POST /api/auth/login` — 로그인 (JWT 발급)
-- `POST /api/auth/signup` — 회원가입
-- `GET /api/notifications` — 알림 목록 조회
-- `GET /api/notifications/stream` — SSE 실시간 알림
-- `PATCH /api/notifications/{id}/read` — 알림 읽음 처리
-- `POST /api/devices/push-token` — 푸시 토큰 등록
+### API 엔드포인트
+
+| Method | URI | 설명 |
+|---|---|---|
+| `POST` | `/api/v1/auth/signup` | 회원가입 |
+| `POST` | `/api/v1/auth/login` | 로그인 (Cookie + body token) |
+| `POST` | `/api/v1/auth/logout` | 로그아웃 (Cookie 삭제) |
+| `GET` | `/api/v1/notifications` | 알림 목록 조회 |
+| `GET` | `/api/v1/notifications/unread` | 미읽음 알림 목록 |
+| `GET` | `/api/v1/notifications/stream` | SSE 실시간 알림 구독 |
+| `PATCH` | `/api/v1/notifications/{id}/read` | 알림 읽음 처리 |
 
 ## 브랜치 전략
 
