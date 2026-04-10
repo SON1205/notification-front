@@ -10,26 +10,21 @@ let eventSource: EventSource | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
- * SSE 인증 전략 (하이브리드):
- * - 현재: 웹/네이티브 모두 fetch streaming + Authorization 헤더
- * - 목표: 웹은 EventSource + Cookie, 네이티브는 fetch + 헤더
- *
- * 백엔드에서 Set-Cookie 구현 완료 시:
- * COOKIE_AUTH_ENABLED를 true로 변경하면 웹이 Cookie 방식으로 전환됨
+ * SSE 하이브리드 인증:
+ * - 웹: EventSource + Cookie (withCredentials: true)
+ * - 네이티브: fetch streaming + Authorization 헤더
  */
-const COOKIE_AUTH_ENABLED = false;
-
 export async function connectSSE(onNotification: SseCallback): Promise<void> {
   disconnect();
 
-  if (COOKIE_AUTH_ENABLED && Platform.OS === 'web') {
+  if (Platform.OS === 'web') {
     connectWebCookie(onNotification);
   } else {
-    await connectWithHeader(onNotification);
+    await connectNativeHeader(onNotification);
   }
 }
 
-/** 웹 Cookie 방식: EventSource + withCredentials (백엔드 Cookie 구현 후 활성화) */
+/** 웹: EventSource + HttpOnly Cookie 자동 전송 */
 function connectWebCookie(onNotification: SseCallback): void {
   const url = `${config.API_BASE_URL}/api/v1/notifications/stream`;
 
@@ -50,8 +45,8 @@ function connectWebCookie(onNotification: SseCallback): void {
   };
 }
 
-/** 헤더 방식: fetch streaming + Authorization (웹/네이티브 공통) */
-async function connectWithHeader(onNotification: SseCallback): Promise<void> {
+/** 네이티브: fetch streaming + Authorization 헤더 */
+async function connectNativeHeader(onNotification: SseCallback): Promise<void> {
   const token = await tokenStorage.getAccessToken();
   if (!token) return;
 
@@ -85,7 +80,7 @@ async function connectWithHeader(onNotification: SseCallback): Promise<void> {
       buffer = processBuffer(buffer, onNotification);
     }
 
-    // 정상 종료 (서버 재배포 등) -> 재연결
+    // 정상 종료 -> 재연결
     scheduleReconnect(onNotification);
   } catch (error: unknown) {
     if (error instanceof Error && error.name === 'AbortError') return;
@@ -105,9 +100,7 @@ function clearReconnectTimer(): void {
   }
 }
 
-/**
- * SSE 표준 파서: \r\n 및 \r 지원, multi-line data, comment(`:`) 무시
- */
+/** SSE 표준 파서: \r\n 정규화, multi-line data, comment 무시 */
 function processBuffer(buffer: string, onNotification: SseCallback): string {
   buffer = buffer.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
@@ -120,9 +113,8 @@ function processBuffer(buffer: string, onNotification: SseCallback): string {
   for (const line of lines) {
     if (line === '') {
       if (eventName === 'notification' && dataLines.length > 0) {
-        const rawData = dataLines.join('\n');
         try {
-          const notification: Notification = JSON.parse(rawData);
+          const notification: Notification = JSON.parse(dataLines.join('\n'));
           onNotification(notification);
         } catch {
           // malformed JSON 무시
@@ -131,7 +123,7 @@ function processBuffer(buffer: string, onNotification: SseCallback): string {
       eventName = '';
       dataLines = [];
     } else if (line.startsWith(':')) {
-      // heartbeat/comment 무시
+      // heartbeat/comment
     } else if (line.startsWith('event:')) {
       eventName = line.slice(6).trim();
     } else if (line.startsWith('data:')) {

@@ -7,4 +7,8 @@ export const authApi = {
 
   signup: (data: SignupRequest) =>
     apiClient.post<SignupResponse>('/auth/signup', data).then((res) => res.data),
+
+  /** 로그아웃: 서버가 HttpOnly Cookie 삭제 */
+  logout: () =>
+    apiClient.post('/auth/logout'),
 };
