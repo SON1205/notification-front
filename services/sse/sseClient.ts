@@ -18,6 +18,9 @@ let nativeEventSource: InstanceType<typeof import('react-native-sse').default> |
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
 
+// 네이티브에서 Last-Event-ID 추적 (웹은 브라우저가 자동 처리)
+let lastEventId: string | null = null;
+
 // iOS는 유휴 연결을 공격적으로 끊지만 error 이벤트가 안 올 수 있음
 // 서버에서 heartbeat가 오든, notification이 오든 아무 이벤트가 없으면 재연결
 const HEARTBEAT_TIMEOUT = 45_000; // 45초
@@ -52,7 +55,13 @@ function connectWebWithLeaderElection(onNotification: SseCallback): void {
   );
 }
 
-/** 리더 탭 전용: 실제 EventSource 연결 */
+/**
+ * 리더 탭 전용: 실제 EventSource 연결
+ *
+ * 브라우저 EventSource는 연결이 끊기면 자동 재연결하면서
+ * Last-Event-ID 헤더를 보낸다. 서버가 id 필드를 포함하면
+ * 수동 reconnect 없이 브라우저에 맡기는 것이 정석.
+ */
 function openEventSource(onNotification: SseCallback): void {
   closeEventSource();
 
@@ -69,12 +78,13 @@ function openEventSource(onNotification: SseCallback): void {
     }
   });
 
+  // 브라우저 EventSource는 onerror 후 자동 재연결한다.
+  // readyState === CLOSED(2)일 때만 서버가 연결을 영구 거부한 것이므로 정리.
   eventSource.onerror = () => {
-    closeEventSource();
-    // 리더인 동안만 재연결 시도
-    if (isCurrentTabLeader()) {
-      scheduleReconnect(onNotification);
+    if (eventSource?.readyState === EventSource.CLOSED) {
+      closeEventSource();
     }
+    // CONNECTING(0)이면 브라우저가 자동 재연결 중 → 아무것도 안 함
   };
 }
 
@@ -97,10 +107,15 @@ async function connectNative(onNotification: SseCallback): Promise<void> {
   // react-native-sse는 커스텀 헤더를 지원하는 순수 JS SSE 클라이언트
   const RNEventSource = (await import('react-native-sse')).default;
 
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+  };
+  if (lastEventId) {
+    headers['Last-Event-ID'] = lastEventId;
+  }
+
   const es = new RNEventSource<'notification' | 'heartbeat'>(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers,
   });
 
   // 연결 성공 시 heartbeat 감시 시작
@@ -110,6 +125,7 @@ async function connectNative(onNotification: SseCallback): Promise<void> {
 
   es.addEventListener('notification', (event) => {
     resetHeartbeat(onNotification);
+    if (event.lastEventId) lastEventId = event.lastEventId;
     if (!event.data) return;
     try {
       const data: Notification = JSON.parse(event.data);
@@ -120,12 +136,14 @@ async function connectNative(onNotification: SseCallback): Promise<void> {
   });
 
   // 서버가 heartbeat 이벤트를 보내는 경우 타이머만 리셋
-  es.addEventListener('heartbeat', () => {
+  es.addEventListener('heartbeat', (event) => {
+    if (event.lastEventId) lastEventId = event.lastEventId;
     resetHeartbeat(onNotification);
   });
 
   // SSE 기본 메시지(이벤트 이름 없는 data)도 heartbeat로 취급
-  es.addEventListener('message', () => {
+  es.addEventListener('message', (event) => {
+    if (event.lastEventId) lastEventId = event.lastEventId;
     resetHeartbeat(onNotification);
   });
 
